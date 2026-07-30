@@ -1,11 +1,11 @@
 {
 	"schemaVersion": 1,
-	"id": "examplemod",
+	"id": "tablewatch",
 	"version": "${version}",
-	"name": "Example Mod",
-	"description": "This mod aims to help new BTA modders.",
+	"name": "TableWatch",
+	"description": "This mod aims to assist with moderation and make identifying griefers easy.",
 	"authors": [
-		"Turnip Labs"
+		"Crafted"
 	],
 	"contact": {
 		"homepage": "",
@@ -13,14 +13,14 @@
 	},
 	"icon": "icon.png",
 	"license": "CC0-1.0",
-	"environment": "*",
+	"environment": "server",
 	"entrypoints": {
 		"main": [
-			"turniplabs.examplemod.ExampleMod"
+			"craftednebula.tablewatch.TableWatch"
 		]
 	},
 	"mixins": [
-		"examplemod.mixins.json"
+		"tablewatch.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=${fabricloader}",

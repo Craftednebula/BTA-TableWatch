@@ -44,7 +44,8 @@ dependencies {
 	compileOnly(libs.joml)
 	compileOnly(libs.joml.primitives)
 	compileOnly(libs.slf4jApi)
-
+	implementation("org.xerial:sqlite-jdbc:3.45.2.0")
+	include("org.xerial:sqlite-jdbc:3.45.2.0")
 	// Only required for development/launch at runtime, won't be part of any builds
 	localRuntime(libs.modMenu) // Optional, can be removed
 	runtimeClasspath(libs.clientJar)
