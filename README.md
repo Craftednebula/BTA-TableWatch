@@ -3,10 +3,10 @@ For BTA 8.01
 
 logs most player actions for the purposes of moderation
 
-/check <player> <pagenum>
+/check or /ch <player> <pagenum>
 checks player history
 
-/checkdate <player> <mindate> <maxdate>
+/checkdate or /cd<player> <mindate> <maxdate>
 ditto but with a range clamp
 
 /getrecent or /gr <pagenum>
