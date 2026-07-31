@@ -8,7 +8,7 @@ commands and syntax:
 /check (player) (suspicousOnly) (min-date) (max-date) (page-num)
 gets a player's action history
 
-/getareahistory (pos1) (pos2) (suspicousOnly) (suspicousOnly) (min-date) (max-date) (page-num)
+/getareahistory (pos1) (pos2) (suspicousOnly) (min-date) (max-date) (page-num)
 get's an area's action history
 
 /getrecent or /gr (pagenum)
