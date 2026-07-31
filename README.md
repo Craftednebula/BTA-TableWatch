@@ -5,16 +5,16 @@ logs most player actions for the purposes of moderation.
 includes an autoprune feature with a config to configure it
 
 commands and syntax:
-/check <player> <suspicousOnly> <min-date> <max-date> <page-num>
+/check (player) (suspicousOnly) (min-date) (max-date) (page-num)
 gets a player's action history
 
-/getareahistory <pos1> <pos2> <suspicousOnly> <suspicousOnly> <min-date> <max-date> <page-num>
+/getareahistory (pos1) (pos2) (suspicousOnly) (suspicousOnly) (min-date) (max-date) (page-num)
 get's an area's action history
 
-/getrecent or /gr <pagenum>
+/getrecent or /gr (pagenum)
 gets the action history of the block you're looking at
 
-/prunedb <days>
+/prunedb (days)
 prunes entries older than n days old
 
 /cleardb
