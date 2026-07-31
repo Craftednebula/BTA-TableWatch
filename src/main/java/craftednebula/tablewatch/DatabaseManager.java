@@ -12,6 +12,53 @@ public class DatabaseManager {
 	private static volatile boolean running = false;
 	private static Thread workerThread;
 	private static Connection connection;
+	private static Thread pruneThread;
+
+	/**
+	 * Deletes logs older than the specified age in seconds and reclaims disk space.
+	 * @return The number of deleted rows.
+	 */
+	public static int pruneOldLogs(long maxAgeSeconds) {
+		long cutoffTimestamp = (System.currentTimeMillis() / 1000L) - maxAgeSeconds;
+		String sql = "DELETE FROM block_logs WHERE timestamp < ?;";
+		int deletedRows = 0;
+
+		try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+			pstmt.setLong(1, cutoffTimestamp);
+			deletedRows = pstmt.executeUpdate();
+
+			if (deletedRows > 0) {
+				// Reclaim unused disk space after deleting records
+				try (Statement stmt = connection.createStatement()) {
+					stmt.execute("VACUUM;");
+				}
+				System.out.println("[TableWatch] Pruned " + deletedRows + " old block log entries.");
+			}
+		} catch (SQLException e) {
+			System.err.println("[TableWatch] Failed to prune old database logs!");
+			e.printStackTrace();
+		}
+
+		return deletedRows;
+	}
+
+	private static void startPruneScheduler() {
+		if (!ConfigManager.autoPruneEnabled) return;
+
+		pruneThread = new Thread(() -> {
+			while (running) {
+				try {
+					pruneOldLogs(ConfigManager.maxLogAgeSeconds);
+					Thread.sleep(ConfigManager.pruneIntervalSeconds * 1000L);
+				} catch (InterruptedException ignored) {
+					break;
+				}
+			}
+		}, "TableWatch-Prune-Worker");
+
+		pruneThread.setDaemon(true);
+		pruneThread.start();
+	}
 
 	public static void initialize(File dataDirectory) {
 		try {
@@ -28,6 +75,7 @@ public class DatabaseManager {
 			connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
 			createSchema();
 			startWorker();
+			startPruneScheduler();
 
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -38,7 +86,7 @@ public class DatabaseManager {
 		List<BlockLogEntry> results = new ArrayList<>();
 		int offset = Math.max(0, (page - 1) * pageSize);
 
-		String sql = "SELECT timestamp, player_name, action_type, block_id, block_meta, old_block_id, old_block_meta " +
+		String sql = "SELECT timestamp, player_name, action_type, block_id, block_meta " +
 			"FROM block_logs WHERE world_name = ? AND x = ? AND y = ? AND z = ? " +
 			"ORDER BY id DESC LIMIT ? OFFSET ?";
 
@@ -57,8 +105,6 @@ public class DatabaseManager {
 					int actionId = rs.getInt("action_type");
 					int blockId = rs.getInt("block_id");
 					int blockMeta = rs.getInt("block_meta");
-					int oldBlockId = rs.getInt("old_block_id");
-					int oldBlockMeta = rs.getInt("old_block_meta");
 
 					BlockLogEntry.Action action = BlockLogEntry.Action.BREAK;
 					for (BlockLogEntry.Action a : BlockLogEntry.Action.values()) {
@@ -68,7 +114,7 @@ public class DatabaseManager {
 						}
 					}
 
-					results.add(new BlockLogEntry(timestamp, playerName, action, worldName, x, y, z, blockId, blockMeta, oldBlockId, oldBlockMeta));
+					results.add(new BlockLogEntry(timestamp, playerName, action, worldName, x, y, z, blockId, blockMeta));
 				}
 			}
 		} catch (SQLException e) {
@@ -81,17 +127,23 @@ public class DatabaseManager {
 		return results;
 	}
 
+	private static String getSuspiciousFilterSql(boolean suspiciousOnly) {
+		if (!suspiciousOnly) return "";
+		return " AND block_id IN (580, 630)";
+	}
+
 	/**
 	 * Retrieves paginated logs for a specific player.
 	 * @param page 1-indexed page number (page 1 = newest entries)
 	 */
-	public static List<BlockLogEntry> getPlayerLogs(String worldName, String playerName, int page, int pageSize) {
+	public static List<BlockLogEntry> getPlayerLogs(String worldName, String playerName, int page, int pageSize, boolean suspiciousOnly) {
 		List<BlockLogEntry> results = new ArrayList<>();
 		int offset = Math.max(0, (page - 1) * pageSize);
 
-		String sql = "SELECT timestamp, action_type, x, y, z, block_id, block_meta, old_block_id, old_block_meta " +
-			"FROM block_logs WHERE world_name = ? AND player_name = ? " +
-			"ORDER BY id DESC LIMIT ? OFFSET ?";
+		String sql = "SELECT timestamp, action_type, x, y, z, block_id, block_meta " +
+			"FROM block_logs WHERE world_name = ? AND player_name = ?" +
+			getSuspiciousFilterSql(suspiciousOnly) +
+			" ORDER BY id DESC LIMIT ? OFFSET ?;";
 
 		try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
 			pstmt.setString(1, worldName);
@@ -105,21 +157,93 @@ public class DatabaseManager {
 			e.printStackTrace();
 		}
 
-		// Reverse so the oldest entry on this page prints at the top, newest at the bottom
 		Collections.reverse(results);
 		return results;
 	}
-
 	/**
-	 * Retrieves paginated logs for a specific player within a Unix timestamp range (seconds).
+	 * Retrieves paginated logs for a specific 3D area (bounding box) within an optional timestamp range.
 	 */
-	public static List<BlockLogEntry> getPlayerLogsByDate(String worldName, String playerName, long minTimestamp, long maxTimestamp, int page, int pageSize) {
+	public static List<BlockLogEntry> getAreaLogs(
+		String worldName,
+		int x1, int y1, int z1,
+		int x2, int y2, int z2,
+		long minTimestamp, long maxTimestamp,
+		int page, int pageSize,
+		boolean suspiciousOnly
+	) {
 		List<BlockLogEntry> results = new ArrayList<>();
 		int offset = Math.max(0, (page - 1) * pageSize);
 
-		String sql = "SELECT timestamp, action_type, x, y, z, block_id, block_meta, old_block_id, old_block_meta " +
-			"FROM block_logs WHERE world_name = ? AND player_name = ? AND timestamp >= ? AND timestamp <= ? " +
-			"ORDER BY id DESC LIMIT ? OFFSET ?";
+		int minX = Math.min(x1, x2);
+		int maxX = Math.max(x1, x2);
+		int minY = Math.min(y1, y2);
+		int maxY = Math.max(y1, y2);
+		int minZ = Math.min(z1, z2);
+		int maxZ = Math.max(z1, z2);
+
+		String sql = "SELECT timestamp, player_name, action_type, x, y, z, block_id, block_meta " +
+			"FROM block_logs WHERE world_name = ? " +
+			"AND x >= ? AND x <= ? " +
+			"AND y >= ? AND y <= ? " +
+			"AND z >= ? AND z <= ? " +
+			"AND timestamp >= ? AND timestamp <= ?" +
+			getSuspiciousFilterSql(suspiciousOnly) +
+			" ORDER BY id DESC LIMIT ? OFFSET ?;";
+
+		try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+			pstmt.setString(1, worldName);
+			pstmt.setInt(2, minX);
+			pstmt.setInt(3, maxX);
+			pstmt.setInt(4, minY);
+			pstmt.setInt(5, maxY);
+			pstmt.setInt(6, minZ);
+			pstmt.setInt(7, maxZ);
+			pstmt.setLong(8, minTimestamp);
+			pstmt.setLong(9, maxTimestamp);
+			pstmt.setInt(10, pageSize);
+			pstmt.setInt(11, offset);
+
+			try (ResultSet rs = pstmt.executeQuery()) {
+				while (rs.next()) {
+					long timestamp = rs.getLong("timestamp");
+					String playerName = rs.getString("player_name");
+					int actionId = rs.getInt("action_type");
+					int x = rs.getInt("x");
+					int y = rs.getInt("y");
+					int z = rs.getInt("z");
+					int blockId = rs.getInt("block_id");
+					int blockMeta = rs.getInt("block_meta");
+
+					BlockLogEntry.Action action = BlockLogEntry.Action.BREAK;
+					for (BlockLogEntry.Action a : BlockLogEntry.Action.values()) {
+						if (a.id == actionId) {
+							action = a;
+							break;
+						}
+					}
+
+					results.add(new BlockLogEntry(timestamp, playerName, action, worldName, x, y, z, blockId, blockMeta));
+				}
+			}
+		} catch (SQLException e) {
+			System.err.println("[BlockLogger] Failed to query area block logs!");
+			e.printStackTrace();
+		}
+
+		Collections.reverse(results);
+		return results;
+	}
+	/**
+	 * Retrieves paginated logs for a specific player within a Unix timestamp range (seconds).
+	 */
+	public static List<BlockLogEntry> getPlayerLogsByDate(String worldName, String playerName, long minTimestamp, long maxTimestamp, int page, int pageSize, boolean suspiciousOnly) {
+		List<BlockLogEntry> results = new ArrayList<>();
+		int offset = Math.max(0, (page - 1) * pageSize);
+
+		String sql = "SELECT timestamp, action_type, x, y, z, block_id, block_meta " +
+			"FROM block_logs WHERE world_name = ? AND player_name = ? AND timestamp >= ? AND timestamp <= ?" +
+			getSuspiciousFilterSql(suspiciousOnly) +
+			" ORDER BY id DESC LIMIT ? OFFSET ?;";
 
 		try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
 			pstmt.setString(1, worldName);
@@ -131,10 +255,10 @@ public class DatabaseManager {
 
 			executeQueryAndPopulate(results, pstmt, playerName, worldName);
 		} catch (SQLException e) {
+			System.err.println("[BlockLogger] Failed to query date-filtered player block logs!");
 			e.printStackTrace();
 		}
 
-		// Reverse so the oldest entry on this page prints at the top, newest at the bottom
 		Collections.reverse(results);
 		return results;
 	}
@@ -149,8 +273,6 @@ public class DatabaseManager {
 				int z = rs.getInt("z");
 				int blockId = rs.getInt("block_id");
 				int blockMeta = rs.getInt("block_meta");
-				int oldBlockId = rs.getInt("old_block_id");
-				int oldBlockMeta = rs.getInt("old_block_meta");
 
 				BlockLogEntry.Action action = BlockLogEntry.Action.BREAK;
 				for (BlockLogEntry.Action a : BlockLogEntry.Action.values()) {
@@ -160,7 +282,7 @@ public class DatabaseManager {
 					}
 				}
 
-				results.add(new BlockLogEntry(timestamp, playerName, action, worldName, x, y, z, blockId, blockMeta, oldBlockId, oldBlockMeta));
+				results.add(new BlockLogEntry(timestamp, playerName, action, worldName, x, y, z, blockId, blockMeta));
 			}
 		}
 	}
@@ -194,17 +316,8 @@ public class DatabaseManager {
 				"y INTEGER NOT NULL," +
 				"z INTEGER NOT NULL," +
 				"block_id INTEGER NOT NULL," +
-				"block_meta INTEGER NOT NULL," +
-				"old_block_id INTEGER DEFAULT 0," +
-				"old_block_meta INTEGER DEFAULT 0" +
+				"block_meta INTEGER NOT NULL" +
 				");");
-
-			try {
-				stmt.execute("ALTER TABLE block_logs ADD COLUMN old_block_id INTEGER DEFAULT 0;");
-				stmt.execute("ALTER TABLE block_logs ADD COLUMN old_block_meta INTEGER DEFAULT 0;");
-			} catch (SQLException ignored) {
-				// Columns already exist
-			}
 
 			stmt.execute("CREATE INDEX IF NOT EXISTS idx_location ON block_logs (world_name, x, y, z);");
 			stmt.execute("CREATE INDEX IF NOT EXISTS idx_player_time ON block_logs (player_name, timestamp);");
@@ -218,16 +331,15 @@ public class DatabaseManager {
 	private static void startWorker() {
 		running = true;
 		workerThread = new Thread(() -> {
-			String sql = "INSERT INTO block_logs (timestamp, player_name, action_type, world_name, x, y, z, block_id, block_meta, old_block_id, old_block_meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+			String sql = "INSERT INTO block_logs (timestamp, player_name, action_type, world_name, x, y, z, block_id, block_meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 			while (running || !QUEUE.isEmpty()) {
 				if (QUEUE.isEmpty()) {
 					try {
-						Thread.sleep(250); // Sleep briefly when idle
+						Thread.sleep(250);
 					} catch (InterruptedException ignored) {}
 					continue;
 				}
 
-				// Batch up to 100 entries at a time
 				List<BlockLogEntry> batch = new ArrayList<>();
 				for (int i = 0; i < 100 && !QUEUE.isEmpty(); i++) {
 					BlockLogEntry entry = QUEUE.poll();
@@ -247,8 +359,6 @@ public class DatabaseManager {
 							pstmt.setInt(7, entry.z);
 							pstmt.setInt(8, entry.blockId);
 							pstmt.setInt(9, entry.blockMeta);
-							pstmt.setInt(10, entry.oldBlockId);
-							pstmt.setInt(11, entry.oldBlockMeta);
 
 							pstmt.addBatch();
 						}

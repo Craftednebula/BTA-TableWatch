@@ -27,7 +27,6 @@ public class ServerPlayerControllerMixin {
 	public Player player;
 
 	@Unique private int tablewatch$oldId = 0;
-	@Unique private int tablewatch$oldMeta = 0;
 	@Unique private int tablewatch$placedX = 0;
 	@Unique private int tablewatch$placedY = 0;
 	@Unique private int tablewatch$placedZ = 0;
@@ -46,19 +45,20 @@ public class ServerPlayerControllerMixin {
 		// Don't log breaking air
 		if (oldBlockId == 0) return;
 
+		// Log the broken block as the target block
 		TableWatch.logBlockChange(
 			this.player.username,
 			BlockLogEntry.Action.BREAK,
 			"world",
 			x, y, z,
-			0, 0,                      // new state: AIR (0)
-			oldBlockId, oldBlockMeta   // old state: what was broken
+			oldBlockId, oldBlockMeta
 		);
 	}
 
 	/**
 	 * BLOCK PLACING - STEP 1 (HEAD)
-	 * Capture whatever block was at the destination before placement (e.g. Air, Tall Grass, Snow).
+	 * Capture whatever block was at the destination before placement (e.g. Air, Tall Grass, Snow)
+	 * so we can check if the placement actually changed the block ID.
 	 */
 	@Inject(method = "useOrPlaceItemStackOnTile", at = @At("HEAD"))
 	private void tablewatch$captureOldPlaceState(
@@ -88,7 +88,6 @@ public class ServerPlayerControllerMixin {
 		}
 
 		this.tablewatch$oldId = world.getBlockId(this.tablewatch$placedX, this.tablewatch$placedY, this.tablewatch$placedZ);
-		this.tablewatch$oldMeta = world.getBlockMetadata(this.tablewatch$placedX, this.tablewatch$placedY, this.tablewatch$placedZ);
 	}
 
 	/**
@@ -105,21 +104,21 @@ public class ServerPlayerControllerMixin {
 		double xPlaced, double yPlaced,
 		CallbackInfoReturnable<Boolean> cir
 	) {
-
 		if (!cir.getReturnValue() || world == null || player == null) return;
 
 		int newBlockId = world.getBlockId(this.tablewatch$placedX, this.tablewatch$placedY, this.tablewatch$placedZ);
 		int newBlockMeta = world.getBlockMetadata(this.tablewatch$placedX, this.tablewatch$placedY, this.tablewatch$placedZ);
 
+		// Do not log if air is placed or if the block ID did not change
 		if (newBlockId == 0 || newBlockId == this.tablewatch$oldId) return;
 
+		// Log the placed block as the target block
 		TableWatch.logBlockChange(
 			player.username,
 			BlockLogEntry.Action.PLACE,
 			"world",
 			this.tablewatch$placedX, this.tablewatch$placedY, this.tablewatch$placedZ,
-			newBlockId, newBlockMeta,                  // new state: placed block
-			this.tablewatch$oldId, this.tablewatch$oldMeta // old state: replaced block
+			newBlockId, newBlockMeta
 		);
 	}
 
@@ -143,13 +142,13 @@ public class ServerPlayerControllerMixin {
 		int targetMeta = world.getBlockMetadata(x, y, z);
 
 		if (tablewatch$isInteractiveBlock(targetId)) {
+			// Log the interacted block as the target block
 			TableWatch.logBlockChange(
 				player.username,
 				BlockLogEntry.Action.INTERACT,
 				"world",
 				x, y, z,
-				targetId, targetMeta, // new state
-				targetId, targetMeta  // old state
+				targetId, targetMeta
 			);
 		}
 	}

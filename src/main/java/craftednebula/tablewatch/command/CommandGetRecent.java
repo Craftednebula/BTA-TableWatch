@@ -27,7 +27,6 @@ public class CommandGetRecent implements CommandManager.CommandRegistry {
 
 	@Override
 	public void register(CommandDispatcher<CommandSource> dispatcher) {
-
 		registerCommandNode(dispatcher, "getrecent");
 		// quick alias
 		registerCommandNode(dispatcher, "gr");
@@ -81,18 +80,22 @@ public class CommandGetRecent implements CommandManager.CommandRegistry {
 			String dateStr = DATE_FORMAT.format(new Date(log.timestamp * 1000L));
 			String actionColor = getActionColor(log.action);
 			String blockName = getReadableBlockName(log.blockId);
-			String oldBlockName = getReadableBlockName(log.oldBlockId);
 
-			if (log.action == BlockLogEntry.Action.BREAK) {
-				source.sendMessage(String.format("§8[%s] §b%s %s%s §7(%s)",
-					dateStr, log.playerName, actionColor, log.action.name(), oldBlockName));
-			} else {
-				source.sendMessage(String.format("§8[%s] §b%s %s%s §7(%s)",
-					dateStr, log.playerName, actionColor, log.action.name(), blockName));
+			// Highlight suspicious block names in light red to match /check
+			if (isSuspiciousBlock(log.blockId)) {
+				blockName = "§c" + blockName + "§7";
 			}
+
+			// Uniform output format for BREAK, PLACE, and INTERACT
+			source.sendMessage(String.format("§8[%s] §b%s %s%s §7(%s)",
+				dateStr, log.playerName, actionColor, log.action.name(), blockName));
 		}
 
 		return 1;
+	}
+
+	private boolean isSuspiciousBlock(int blockId) {
+		return blockId == 10 || blockId == 11 || blockId == 46 || blockId == 51;
 	}
 
 	private String getActionColor(BlockLogEntry.Action action) {
@@ -109,10 +112,10 @@ public class CommandGetRecent implements CommandManager.CommandRegistry {
 		if (block == null) return "Unknown (" + blockId + ")";
 
 		String name = block.getKey();
-		if (name.contains(".")) {
+		if (name != null && name.contains(".")) {
 			name = name.substring(name.lastIndexOf('.') + 1);
 		}
-		return name;
+		return name != null ? name : "ID:" + blockId;
 	}
 
 	/**
