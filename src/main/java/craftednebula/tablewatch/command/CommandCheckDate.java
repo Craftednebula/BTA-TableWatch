@@ -19,7 +19,7 @@ public class CommandCheckDate implements CommandManager.CommandRegistry {
 	// Supports formats like "2026-07-30" or "2026-07-30-14:30"
 	private static final SimpleDateFormat DATE_ONLY = new SimpleDateFormat("yyyy-MM-dd");
 	private static final SimpleDateFormat DATE_TIME = new SimpleDateFormat("yyyy-MM-dd-HH:mm");
-	private static final int PAGE_SIZE = 8;
+	private static final int PAGE_SIZE = 6;
 
 	@Override
 	public void register(CommandDispatcher<CommandSource> dispatcher) {

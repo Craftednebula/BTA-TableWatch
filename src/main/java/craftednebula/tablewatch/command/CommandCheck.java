@@ -18,7 +18,7 @@ import java.util.List;
 
 public class CommandCheck implements CommandManager.CommandRegistry {
 	private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("MM-dd HH:mm:ss");
-	private static final int PAGE_SIZE = 8; // Number of entries per page
+	private static final int PAGE_SIZE = 6;
 
 	@Override
 	public void register(CommandDispatcher<CommandSource> dispatcher) {
@@ -32,7 +32,6 @@ public class CommandCheck implements CommandManager.CommandRegistry {
 				.requires(CommandSource::hasAdmin)
 				.then(
 					ArgumentBuilderRequired.<CommandSource, String>argument("player", ArgumentTypeString.word())
-						// Default to Page 1 if no page is specified
 						.executes(context -> {
 							String targetPlayer = ArgumentTypeString.getString(context, "player");
 							return executeCheck(context.getSource(), targetPlayer, 1);

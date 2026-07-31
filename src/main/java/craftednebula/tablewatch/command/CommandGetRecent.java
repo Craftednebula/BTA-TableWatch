@@ -20,7 +20,7 @@ import java.util.List;
 
 public class CommandGetRecent implements CommandManager.CommandRegistry {
 	private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("MM-dd HH:mm:ss");
-	private static final int PAGE_SIZE = 5; // Number of entries per page
+	private static final int PAGE_SIZE = 6;
 
 	public CommandGetRecent() {
 	}
